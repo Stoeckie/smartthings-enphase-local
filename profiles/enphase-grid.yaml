@@ -1,0 +1,10 @@
+name: enphase-grid
+components:
+  - id: main
+    capabilities:
+      - id: powerMeter
+        version: 1
+      - id: refresh
+        version: 1
+    categories:
+      - name: CurbPowerMeter

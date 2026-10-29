@@ -1,0 +1,25 @@
+name: enphase-gateway
+components:
+  - id: main
+    capabilities:
+      - id: refresh
+        version: 1
+    categories:
+      - name: Bridges
+preferences:
+  - name: ipAddress
+    title: Gateway IP address
+    description: Leave on "auto" (found via mDNS / envoy.local). Set an IP only if that fails.
+    required: false
+    preferenceType: string
+    definition:
+      stringType: text
+      default: "auto"
+  - name: pollInterval
+    title: Poll interval (seconds)
+    required: false
+    preferenceType: integer
+    definition:
+      minimum: 10
+      maximum: 600
+      default: 30

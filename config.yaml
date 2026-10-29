@@ -1,0 +1,7 @@
+name: "Enphase IQ Gateway (local)"
+packageKey: "enphase-iq-gateway-local"
+description: "Local solar, consumption, grid and IQ Battery data from an Enphase IQ Gateway (Envoy) with an owner token"
+vendorSupportInformation: "https://github.com/Stoeckie"
+permissions:
+  lan: {}
+  discovery: {}
