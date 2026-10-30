@@ -10,8 +10,8 @@ local api = require "envoy_api"
 local model = require "envoy_model"
 local config_server = require "config_server"
 
-local BUILD = "2026-10-29d"
-local SETTINGS_OPEN_SECS = 600
+local BUILD = "2026-10-30a"
+local SETTINGS_OPEN_SECS = 900
 
 local CHILDREN = {
   { key = "solar", label = "Zonnepanelen", profile = "enphase-solar" },
@@ -176,13 +176,23 @@ local function schedule(driver, parent)
   parent.thread:call_with_delay(2, function() poll(driver, parent) end)
 end
 
--- settings page: open while no token is set, or for 10 minutes after Refresh
-local function open_settings(driver, parent, secs)
+-- settings page: never open longer than SETTINGS_OPEN_SECS (after a start without token, or after Refresh)
+local function check_settings(parent)
   local st = state[parent.id]
-  if st.server and st.server.running then
-    st.server_until = os.time() + (secs or SETTINGS_OPEN_SECS)
-    return
+  if not (st and st.server) then return end
+  if os.time() >= (st.server_until or 0) then
+    st.server.stop()
+    st.server = nil
+    log.info("[enphase] settings page closed. Press Refresh on the gateway device to open it for 15 minutes")
+  else
+    parent.thread:call_with_delay(30, function() check_settings(parent) end)
   end
+end
+
+local function open_settings(driver, parent)
+  local st = state[parent.id]
+  st.server_until = os.time() + SETTINGS_OPEN_SECS
+  if st.server and st.server.running then return end
   local srv, err = config_server.start({
     get_status = function()
       local host = settings(parent)
@@ -195,27 +205,18 @@ local function open_settings(driver, parent, secs)
       st.client = nil
       log.info("[enphase] settings saved")
       parent.thread:call_with_delay(1, function() poll(driver, parent) end)
-      parent.thread:call_with_delay(60, function()
-        local _, t = settings(parent)
-        if t ~= "" and st.server then st.server.stop(); st.server = nil end
-      end)
+      -- close soon after a save instead of waiting for the full window
+      st.server_until = math.min(st.server_until or 0, os.time() + 60)
     end,
   })
   if not srv then
     log.error("[enphase] settings page failed: " .. tostring(err))
     return
   end
-  st.server, st.server_until = srv, os.time() + (secs or SETTINGS_OPEN_SECS)
+  st.server = srv
   local hub_ip = driver.environment_info and driver.environment_info.hub_ipv4 or "<hub-ip>"
-  log.info(string.format("[enphase] settings page: http://%s:%d/", hub_ip, srv.port))
-  parent.thread:call_with_delay(secs or SETTINGS_OPEN_SECS, function()
-    local _, token = settings(parent)
-    if st.server and os.time() >= (st.server_until or 0) and token ~= "" then
-      st.server.stop()
-      st.server = nil
-      log.info("[enphase] settings page closed")
-    end
-  end)
+  log.info(string.format("[enphase] settings page: http://%s:%d/ (open for 15 minutes)", hub_ip, srv.port))
+  parent.thread:call_with_delay(30, function() check_settings(parent) end)
 end
 
 local function handle_refresh(driver, device)
@@ -230,7 +231,9 @@ local function device_init(driver, device)
   state[device.id] = state[device.id] or {}
   schedule(driver, device)
   local _, token = settings(device)
-  if token == "" then open_settings(driver, device, 24 * 3600) end
+  if token == "" then
+    open_settings(driver, device)
+  end
 end
 
 local function info_changed(driver, device)

@@ -52,7 +52,17 @@ end
 local function respond(client, code, body)
   local reason = ({ [200] = "OK", [400] = "Bad Request", [404] = "Not Found" })[code] or "OK"
   client:send(string.format("HTTP/1.1 %d %s\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\n" ..
-    "Cache-Control: no-store\r\nConnection: close\r\n\r\n", code, reason, #body) .. body)
+    "Cache-Control: no-store\r\nX-Frame-Options: DENY\r\nConnection: close\r\n\r\n", code, reason, #body) .. body)
+end
+
+--- Refuse requests that a web page on another site could make through the visitor's browser:
+--- the page must be addressed by IP (no DNS rebinding) and a form must come from this page itself.
+local function allowed(req)
+  local host = (req.headers or {})["host"] or ""
+  if not host:match("^%d+%.%d+%.%d+%.%d+:?%d*$") then return false end
+  local origin = (req.headers or {})["origin"]
+  if origin and origin ~= ("http://" .. host) then return false end
+  return true
 end
 
 local function read_request(client)
@@ -72,7 +82,7 @@ local function read_request(client)
   local body = ""
   local len = tonumber(headers["content-length"] or "0") or 0
   if len > 0 and len < 16384 then body = client:receive(len) or "" end
-  return { method = method, path = path, body = body }
+  return { method = method, path = path, headers = headers, body = body }
 end
 
 function M.valid_host(h) return h == "" or (#h <= 253 and h:match("^[%w%.%-]+$") ~= nil) end
@@ -99,7 +109,9 @@ function M.start(opts)
           local okh, herr = pcall(function()
             local req = read_request(client)
             if not req then return end
-            if req.method == "GET" and (req.path == "/" or req.path:match("^/%?")) then
+            if not allowed(req) then
+              respond(client, 400, page("Not allowed", '<p class="err">Open this page with the hub IP address.</p>'))
+            elseif req.method == "GET" and (req.path == "/" or req.path:match("^/%?")) then
               respond(client, 200, form_page(opts.get_status()))
             elseif req.method == "POST" and req.path == "/save" then
               local form = parse_form(req.body)
@@ -111,7 +123,7 @@ function M.start(opts)
               else
                 opts.on_save(host, token)
                 respond(client, 200, page("Saved", '<p class="ok">Saved. The driver is connecting to the gateway.</p>' ..
-                  '<p class="note">This page closes itself shortly. Press Refresh on the Enphase IQ Gateway device to open it again for 10 minutes.</p>'))
+                  '<p class="note">This page closes itself shortly. Press Refresh on the Enphase IQ Gateway device to open it again for 15 minutes.</p>'))
               end
             else
               respond(client, 404, page("Not found", '<p><a href="/">Settings</a></p>'))
@@ -128,4 +140,6 @@ function M.start(opts)
 end
 
 M._parse_form = parse_form
+M._allowed = allowed
+
 return M

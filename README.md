@@ -32,7 +32,7 @@ Default poll every 30 s. Rename the devices as you like.
 2. SmartThings app: **Add device → Scan nearby**. An "Enphase IQ Gateway" device appears.
 3. Enter the token on the **settings page on the hub**. The SmartThings app cuts text fields at 250 characters and tokens are longer, so the driver serves a small page instead:
    * the address is in the hub log: `[enphase] settings page: http://<hub-ip>:<port>/`
-   * the page is open while no token is set, and for 10 minutes after pressing Refresh on the gateway device
+   * for security the page is open for at most 15 minutes: after the driver starts without a token, and after pressing Refresh on the gateway device; about a minute after saving it closes
    * IP can stay empty (found via mDNS / envoy.local)
 4. Within a poll the child devices appear.
 
