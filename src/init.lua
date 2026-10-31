@@ -10,7 +10,7 @@ local api = require "envoy_api"
 local model = require "envoy_model"
 local config_server = require "config_server"
 
-local BUILD = "2026-10-30a"
+local BUILD = "2026-11-01a"
 local SETTINGS_OPEN_SECS = 900
 
 local CHILDREN = {
@@ -62,6 +62,36 @@ local function discover_ip()
   if okr and ip then return ip end
 end
 
+-- battery history: SmartThings draws no graph for battery %, so optionally repeat it as a reading that has one
+local GRAPH_PROFILE = { off = "enphase-battery", humidity = "enphase-battery-hum", power = "enphase-battery-pow" }
+
+local function graph_mode(dev)
+  local m = (dev.preferences or {}).batteryGraph
+  return GRAPH_PROFILE[m or ""] and m or "off"
+end
+
+local function sync_graph_profile(dev)
+  local want = GRAPH_PROFILE[graph_mode(dev)]
+  if dev:get_field("profile") ~= want then
+    dev:try_update_metadata({ profile = want })
+    dev:set_field("profile", want, { persist = true })
+    log.info("[enphase] battery profile -> " .. want)
+  end
+end
+
+local function emit_graph(dev, soc)
+  local mode = graph_mode(dev)
+  local comps = dev.profile and dev.profile.components or {}
+  local ok, err = pcall(function()
+    if mode == "humidity" then
+      dev:emit_event(capabilities.relativeHumidityMeasurement.humidity(soc))
+    elseif mode == "power" and comps.graph then
+      dev:emit_component_event(comps.graph, capabilities.powerMeter.power({ value = soc, unit = "W" }))
+    end
+  end)
+  if not ok then log.warn("[enphase] battery graph: " .. tostring(err)) end
+end
+
 local function children(driver, parent)
   local out = {}
   for _, d in ipairs(driver:get_devices()) do
@@ -96,7 +126,11 @@ local function emit(kids, r)
   if r.consumption then power(kids.consumption, r.consumption.w); energy(kids.consumption, r.consumption.wh_lifetime) end
   if r.grid then power(kids.grid, r.grid.w) end
   if r.battery and kids.battery then
-    if r.battery.soc then kids.battery:emit_event(capabilities.battery.battery(math.floor(r.battery.soc + 0.5))) end
+    if r.battery.soc then
+      local soc = math.floor(r.battery.soc + 0.5)
+      kids.battery:emit_event(capabilities.battery.battery(soc))
+      emit_graph(kids.battery, soc)
+    end
     power(kids.battery, r.battery.w)
   end
 end
@@ -227,7 +261,10 @@ local function handle_refresh(driver, device)
 end
 
 local function device_init(driver, device)
-  if not is_parent(device) then return end
+  if not is_parent(device) then
+    if device.parent_assigned_child_key == "battery" then sync_graph_profile(device) end
+    return
+  end
   state[device.id] = state[device.id] or {}
   schedule(driver, device)
   local _, token = settings(device)
@@ -240,6 +277,11 @@ local function info_changed(driver, device)
   if is_parent(device) then
     state[device.id].client = nil
     schedule(driver, device)
+  elseif device.parent_assigned_child_key == "battery" then
+    sync_graph_profile(device)
+    local parent = device:get_parent_device()
+    local st = parent and state[parent.id]
+    if st then st.n = 0 end -- read the battery again at the next poll
   end
 end
 

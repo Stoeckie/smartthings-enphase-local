@@ -15,6 +15,8 @@ One gateway device with child devices:
 
 Default poll every 30 s. Rename the devices as you like.
 
+**Battery history graph** (setting on Thuisbatterij): SmartThings draws no graph for battery %. Choose *Humidity (%)* to get the state of charge also as a humidity reading with a graph (the device then also counts as a humidity sensor), or *Power (W)* for an extra part "Battery %" with 1 % = 1 W (can show up in energy overviews). Default off; the driver switches the device to the matching profile by itself.
+
 ## Requirements
 
 * SmartThings hub with Edge, on the same network as the IQ Gateway
