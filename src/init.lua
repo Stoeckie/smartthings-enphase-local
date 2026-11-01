@@ -8,19 +8,40 @@ local capabilities = require "st.capabilities"
 -- Connection status as a capability, so routines can notify when this device loses its connection
 -- (SmartThings itself has no "device offline" trigger for routines).
 -- Short drops (a reconnect, one missed poll) are ignored: Offline is only emitted after CONN_GRACE seconds down.
+-- Every drop is remembered (time, duration, reason) and shown as "Last drop" once the connection is back.
 local conn_cap = capabilities["silvervalley08660.connectionStatus"]
+local drop_cap = capabilities["silvervalley08660.connectionLog"]
 local CONN_GRACE = 120
 local function emit_conn(dev, v)
   if dev:get_field("conn_status") == v then return end
   local ok = pcall(function() dev:emit_event(conn_cap.status(v)) end)
   if ok then dev:set_field("conn_status", v) end
 end
-local function set_conn(dev, up)
+local function fmt_secs(s)
+  if s < 120 then return string.format("%d s", s) end
+  if s < 7200 then return string.format("%d min", s // 60) end
+  return string.format("%.1f h", s / 3600)
+end
+local function note_drop(dev, reason)
+  if dev:get_field("conn_drop") then return end
+  dev:set_field("conn_drop", { at = os.time(), reason = tostring(reason or "unknown"):sub(1, 120) }, { persist = true })
+end
+local function report_drop(dev)
+  local d = dev:get_field("conn_drop")
+  if type(d) ~= "table" or not d.at then return end
+  dev:set_field("conn_drop", nil, { persist = true })
+  local txt = string.format("%s UTC, %s: %s", os.date("!%Y-%m-%d %H:%M:%S", d.at), fmt_secs(math.max(0, os.time() - d.at)), tostring(d.reason))
+  require("log").info("[conn] " .. tostring(dev.label) .. " back after drop at " .. txt)
+  pcall(function() dev:emit_event(drop_cap.lastDrop(txt:sub(1, 200))) end)
+end
+local function set_conn(dev, up, reason)
   if up then
     dev:set_field("conn_down_since", nil)
+    report_drop(dev)
     emit_conn(dev, "online")
     return
   end
+  note_drop(dev, reason)
   if dev:get_field("conn_down_since") then return end
   local since = os.time()
   dev:set_field("conn_down_since", since)
@@ -37,7 +58,7 @@ local api = require "envoy_api"
 local model = require "envoy_model"
 local config_server = require "config_server"
 
-local BUILD = "2026-11-01c"
+local BUILD = "2026-11-01d"
 local SETTINGS_OPEN_SECS = 900
 
 local CHILDREN = {
@@ -185,7 +206,7 @@ poll_once = function(driver, parent, st)
     else
       st.err = "gateway not found (set the IP)"
       log.warn("[enphase] " .. st.err)
-      set_conn(parent, false); parent:offline()
+      set_conn(parent, false, st.err); parent:offline()
       return
     end
   end
@@ -210,7 +231,7 @@ poll_once = function(driver, parent, st)
   if not r then
     st.err = err
     log.warn("[enphase] " .. tostring(err))
-    set_conn(parent, false); parent:offline()
+    set_conn(parent, false, err); parent:offline()
     for _, k in pairs(children(driver, parent)) do k:offline() end
     return
   end
