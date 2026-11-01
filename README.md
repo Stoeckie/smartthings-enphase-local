@@ -52,6 +52,8 @@ SmartThings has no routine trigger for "device offline". The Enphase gateway dev
 
 If Enphase gateway device > Connection is Offline, then send a notification to members.
 
+Short drops (a reconnect or one missed poll) are ignored: Connection only turns Offline after 2 minutes without a connection.
+
 ## Privacy
 
 The token is stored on the hub only (persistent device field). Nothing secret is in this code or the package.
