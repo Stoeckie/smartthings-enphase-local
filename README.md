@@ -46,6 +46,12 @@ Default poll every 30 s. Rename the devices as you like.
 * Polls never overlap; the gateway handles only a few connections at a time.
 * TLS certificate verification is off: the gateway uses a self-signed certificate (LAN only).
 
+## Offline notification
+
+SmartThings has no routine trigger for "device offline". The Enphase gateway device therefore has a **Connection** status (Connected or Offline). Make a routine to get a message:
+
+If Enphase gateway device > Connection is Offline, then send a notification to members.
+
 ## Privacy
 
 The token is stored on the hub only (persistent device field). Nothing secret is in this code or the package.

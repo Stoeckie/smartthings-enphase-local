@@ -4,13 +4,23 @@
 -- the hub only; nothing secret lives in the code.
 local Driver = require "st.driver"
 local capabilities = require "st.capabilities"
+
+-- Connection status as a capability, so routines can notify when this device loses its connection
+-- (SmartThings itself has no "device offline" trigger for routines).
+local conn_cap = capabilities["silvervalley08660.connectionStatus"]
+local function set_conn(dev, up)
+  local v = up and "online" or "offline"
+  if dev:get_field("conn_status") == v then return end
+  local ok = pcall(function() dev:emit_event(conn_cap.status(v)) end)
+  if ok then dev:set_field("conn_status", v) end
+end
 local log = require "log"
 local cosock = require "cosock"
 local api = require "envoy_api"
 local model = require "envoy_model"
 local config_server = require "config_server"
 
-local BUILD = "2026-11-01a"
+local BUILD = "2026-11-01b"
 local SETTINGS_OPEN_SECS = 900
 
 local CHILDREN = {
@@ -158,7 +168,7 @@ poll_once = function(driver, parent, st)
     else
       st.err = "gateway not found (set the IP)"
       log.warn("[enphase] " .. st.err)
-      parent:offline()
+      set_conn(parent, false); parent:offline()
       return
     end
   end
@@ -183,7 +193,7 @@ poll_once = function(driver, parent, st)
   if not r then
     st.err = err
     log.warn("[enphase] " .. tostring(err))
-    parent:offline()
+    set_conn(parent, false); parent:offline()
     for _, k in pairs(children(driver, parent)) do k:offline() end
     return
   end
@@ -196,7 +206,7 @@ poll_once = function(driver, parent, st)
   end
   r.battery = st.battery
   st.err, st.last_ok = nil, os.time()
-  parent:online()
+  parent:online(); set_conn(parent, true)
   local kids = ensure_children(driver, parent, r)
   for _, k in pairs(kids) do k:online() end
   emit(kids, r)
