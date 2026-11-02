@@ -58,7 +58,7 @@ local api = require "envoy_api"
 local model = require "envoy_model"
 local config_server = require "config_server"
 
-local BUILD = "2026-11-01d"
+local BUILD = "2026-11-02a"
 local SETTINGS_OPEN_SECS = 900
 
 local CHILDREN = {
@@ -361,4 +361,11 @@ local driver = Driver("enphase-iq-gateway-local", {
 })
 
 log.info("[enphase] Enphase IQ Gateway (local) driver starting, build " .. BUILD)
+-- certificate pinning: which gateway device owns an address
+require("certpin").lookup = function(host)
+  for _, d in ipairs(driver:get_devices()) do
+    if is_parent(d) and settings(d) == host then return d end
+  end
+end
+
 driver:run()

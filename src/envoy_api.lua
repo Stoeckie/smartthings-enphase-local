@@ -3,11 +3,12 @@
 local socket = require "cosock.socket"
 local ssl = require "cosock.ssl"
 local json = require "st.json"
+local pin = require "certpin"
 
 local M = {}
 local TIMEOUT = 25 -- production.json can take several seconds on D8 firmware
 
-local function tls_connect(host, timeout)
+local function tls_connect(host, timeout, secret)
   local sock, err = socket.tcp()
   if not sock then return nil, "tcp: " .. tostring(err) end
   sock:settimeout(timeout or TIMEOUT)
@@ -26,12 +27,14 @@ local function tls_connect(host, timeout)
     tls:close()
     return nil, "tls handshake: " .. tostring(herr)
   end
+  local okp, perr = pin.check(tls, host, secret)
+  if not okp then tls:close(); return nil, perr end
   return tls
 end
 
 --- One HTTPS GET. Returns status, body, headers  or nil, err.
 function M.get(host, path, token, cookie)
-  local sock, err = tls_connect(host)
+  local sock, err = tls_connect(host, nil, token)
   if not sock then return nil, err end
   local lines = {
     "GET " .. path .. " HTTP/1.1",
