@@ -56,6 +56,10 @@ Short drops (a reconnect or one missed poll) are ignored: Connection only turns 
 
 Every drop is remembered. When the connection is back, the device shows **Last drop**: time (UTC), how long it lasted and the reason (for example "session closed" or "timeout"). Older drops are in the device history.
 
+## Certificate pinning
+
+The gateway uses a self-signed certificate, so it cannot be checked against a certificate authority. The driver remembers the gateway's certificate (SHA-256 fingerprint) at the first connection that carries the owner token. When another certificate answers later (another device on that address, or someone in between), the driver refuses and does not send the owner token; the log says so. Replaced the gateway? Enter the owner token again: the next certificate is then trusted. On a hub that cannot read certificates the driver logs that pinning is off and works as before.
+
 ## Privacy
 
 The token is stored on the hub only (persistent device field). Nothing secret is in this code or the package.
