@@ -58,7 +58,7 @@ Every drop is remembered. When the connection is back, the device shows **Last d
 
 ## Certificate pinning
 
-The gateway uses a self-signed certificate, so it cannot be checked against a certificate authority. The driver remembers the gateway's certificate (SHA-256 fingerprint) at the first connection that carries the owner token. When another certificate answers later (another device on that address, or someone in between), the driver refuses and does not send the owner token; the log says so. Replaced the gateway? Enter the owner token again: the next certificate is then trusted. On a hub that cannot read certificates the driver logs that pinning is off and works as before.
+The gateway uses a self-signed certificate, so it cannot be checked against a certificate authority. The driver remembers the gateway's certificate (a hash of the certificate; SmartThings hubs cannot give the usual fingerprint) at the first connection that carries the owner token. When another certificate answers later (another device on that address, or someone in between), the driver refuses and does not send the owner token; the log says so. Replaced the gateway? Enter the owner token again: the next certificate is then trusted. On a hub that cannot read certificates the driver logs that pinning is off and works as before.
 
 ## Privacy
 
