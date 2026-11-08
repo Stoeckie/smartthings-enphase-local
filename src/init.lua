@@ -37,6 +37,14 @@ end
 local function set_conn(dev, up, reason)
   if up then
     dev:set_field("conn_down_since", nil)
+    if not dev:get_field("drop_seen") then
+      -- the app wants a value for every attribute ("not all status information updated yet" otherwise)
+      dev:set_field("drop_seen", true)
+      local ok, v = pcall(dev.get_latest_state, dev, "main", drop_cap.ID, "lastDrop")
+      if ok and v == nil and not dev:get_field("conn_drop") then
+        pcall(function() dev:emit_event(drop_cap.lastDrop("No drops yet")) end)
+      end
+    end
     report_drop(dev)
     emit_conn(dev, "online")
     return
@@ -58,7 +66,7 @@ local api = require "envoy_api"
 local model = require "envoy_model"
 local config_server = require "config_server"
 
-local BUILD = "2026-11-02a"
+local BUILD = "2026-11-08a"
 local SETTINGS_OPEN_SECS = 900
 
 local CHILDREN = {
