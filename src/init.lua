@@ -71,8 +71,9 @@ local cosock = require "cosock"
 local api = require "envoy_api"
 local model = require "envoy_model"
 local config_server = require "config_server"
+local emitq = require "emitq"  -- only changed values go to the hub (see emitq.lua)
 
-local BUILD = "2026-11-08b"
+local BUILD = "2026-11-09a"
 local SETTINGS_OPEN_SECS = 900
 
 local CHILDREN = {
@@ -146,9 +147,9 @@ local function emit_graph(dev, soc)
   local comps = dev.profile and dev.profile.components or {}
   local ok, err = pcall(function()
     if mode == "humidity" then
-      dev:emit_event(capabilities.relativeHumidityMeasurement.humidity(soc))
+      emitq.emit(dev, capabilities.relativeHumidityMeasurement.humidity(soc))
     elseif mode == "power" and comps.graph then
-      dev:emit_component_event(comps.graph, capabilities.powerMeter.power({ value = soc, unit = "W" }))
+      emitq.emit(dev, capabilities.powerMeter.power({ value = soc, unit = "W" }), comps.graph)
     end
   end)
   if not ok then log.warn("[enphase] battery graph: " .. tostring(err)) end
@@ -179,10 +180,10 @@ local poll_once
 
 local function emit(kids, r)
   local function power(dev, w)
-    if dev and w then dev:emit_event(capabilities.powerMeter.power({ value = math.floor(w + 0.5), unit = "W" })) end
+    if dev and w then emitq.try(dev, capabilities.powerMeter.power({ value = math.floor(w + 0.5), unit = "W" })) end
   end
   local function energy(dev, wh)
-    if dev and wh then dev:emit_event(capabilities.energyMeter.energy({ value = math.floor(wh / 10 + 0.5) / 100, unit = "kWh" })) end
+    if dev and wh then emitq.try(dev, capabilities.energyMeter.energy({ value = math.floor(wh / 10 + 0.5) / 100, unit = "kWh" })) end
   end
   if r.solar then power(kids.solar, r.solar.w); energy(kids.solar, r.solar.wh_lifetime) end
   if r.consumption then power(kids.consumption, r.consumption.w); energy(kids.consumption, r.consumption.wh_lifetime) end
@@ -190,7 +191,7 @@ local function emit(kids, r)
   if r.battery and kids.battery then
     if r.battery.soc then
       local soc = math.floor(r.battery.soc + 0.5)
-      kids.battery:emit_event(capabilities.battery.battery(soc))
+      emitq.try(kids.battery, capabilities.battery.battery(soc))
       emit_graph(kids.battery, soc)
     end
     power(kids.battery, r.battery.w)
@@ -348,6 +349,7 @@ local function info_changed(driver, device)
 end
 
 local function device_removed(driver, device)
+  emitq.forget(device)
   local st = state[device.id]
   if st then
     if st.timer then device.thread:cancel_timer(st.timer) end

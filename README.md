@@ -44,6 +44,7 @@ Default poll every 30 s. Rename the devices as you like.
 * Power and energy: `/ivp/meters` + `/ivp/meters/readings` (fast, under 1 s). On D8 firmware `production.json` can take 10 to 30 s, at night especially, so it is only used as a fallback for systems without CT meters (at most every 5 minutes).
 * Battery: `/ivp/ensemble/secctrl` (`agg_soc`) and `/ivp/ensemble/power`, every 4th poll.
 * Polls never overlap; the gateway handles only a few connections at a time.
+* Events: a value only goes to the hub when it changed (re-emitting everything every poll makes the hub drop events, and the app then keeps a stale value). After a driver start every value is sent once so the app catches up.
 * TLS certificate verification is off: the gateway uses a self-signed certificate (LAN only).
 
 ## Offline notification
