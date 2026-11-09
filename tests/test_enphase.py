@@ -107,3 +107,44 @@ def test_settings_page_secret_path():
         lua.execute(("CLIENT(%s)" % json.dumps("GET /x/ HTTP/1.1\r\n" + host + "\r\n")).encode())
     lua.execute(b'SRV = cs.start({ test_secret = "s3cr3t", get_status = function() return {} end, on_save = function() end })')
     assert lua.eval(b"SRV.running") is False
+
+
+def test_deadband():
+    """30 s polls: power only on >= max(25 W, 3 %) or every 5 min; energy every 5 min or on >= 0.1 kWh."""
+    lua = runtime()
+    m = req(lua, "envoy_model")
+    T = lua.eval(b"function(v, t) return { v = v, t = t } end")
+    assert m.power_due(None, 500, 0)
+    assert not m.power_due(T(500, 0), 520, 30)        # 20 W < 25 W
+    assert m.power_due(T(500, 0), 525, 30)
+    assert not m.power_due(T(3000, 0), 3080, 30)      # 80 W < 3 % of 3000
+    assert m.power_due(T(3000, 0), 3090, 30)
+    assert m.power_due(T(-1200, 0), -1240, 30)        # export (negative) works the same
+    assert m.power_due(T(500, 0), 501, 300)           # 5 minutes passed
+    assert not m.energy_due(T(1234.56, 0), 1234.62, 30)
+    assert m.energy_due(T(1234.56, 0), 1234.66, 30)
+    assert m.energy_due(T(1234.56, 0), 1234.57, 300)
+    # one hour of noisy 30 s polls around 2 kW: about one power event a minute or less
+    sent, last = 0, None
+    import random
+    rnd = random.Random(1)
+    for i in range(120):
+        w = 2000 + rnd.randint(-40, 40)
+        if m.power_due(last, w, i * 30):
+            sent += 1
+            last = T(w, i * 30)
+    assert sent <= 60
+
+
+def test_bind_failure_closes_socket():
+    lua = runtime()
+    lua.execute(b'''
+      CLOSED = false
+      package.loaded["log"] = { warn = function() end, info = function() end }
+      package.loaded["cosock"] = { spawn = function() end }
+      local server = { bind = function() return nil, "address in use" end, close = function() CLOSED = true end }
+      package.loaded["cosock.socket"] = { tcp = function() return server end, gettime = os.clock }
+      cs = require "config_server"
+      R, E = cs.start({})''')
+    g = lua.globals()
+    assert g.R is None and b"bind" in g.E and g.CLOSED is True

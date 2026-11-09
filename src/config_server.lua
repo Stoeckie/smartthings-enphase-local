@@ -114,7 +114,7 @@ function M.start(opts)
   local server, err = socket.tcp()
   if not server then return nil, err end
   local ok, berr = server:bind("*", 0)
-  if not ok then return nil, "bind: " .. tostring(berr) end
+  if not ok then server:close(); return nil, "bind: " .. tostring(berr) end   -- do not leak the socket
   server:listen(4)
   server:settimeout(2)
   local _, port = server:getsockname()

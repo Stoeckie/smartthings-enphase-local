@@ -73,7 +73,7 @@ local model = require "envoy_model"
 local config_server = require "config_server"
 local emitq = require "emitq"  -- only changed values go to the hub (see emitq.lua)
 
-local BUILD = "2026-11-09b"
+local BUILD = "2026-11-09c"
 local SETTINGS_OPEN_SECS = 900
 
 local CHILDREN = {
@@ -187,12 +187,23 @@ end
 
 local poll_once
 
+-- power and energy go through a deadband (envoy_model.power_due / energy_due): rounded to 1 W and 0.01 kWh they
+-- changed on almost every poll. The last value sent is kept in a (not persisted) device field.
 local function emit(kids, r)
+  local now = os.time()
   local function power(dev, w)
-    if dev and w then emitq.try(dev, capabilities.powerMeter.power({ value = math.floor(w + 0.5), unit = "W" })) end
+    if not (dev and w) then return end
+    local v = math.floor(w + 0.5)
+    if not model.power_due(dev:get_field("db_power"), v, now) then return end
+    emitq.try(dev, capabilities.powerMeter.power({ value = v, unit = "W" }))
+    dev:set_field("db_power", { v = v, t = now })
   end
   local function energy(dev, wh)
-    if dev and wh then emitq.try(dev, capabilities.energyMeter.energy({ value = math.floor(wh / 10 + 0.5) / 100, unit = "kWh" })) end
+    if not (dev and wh) then return end
+    local v = math.floor(wh / 10 + 0.5) / 100
+    if not model.energy_due(dev:get_field("db_energy"), v, now) then return end
+    emitq.try(dev, capabilities.energyMeter.energy({ value = v, unit = "kWh" }))
+    dev:set_field("db_energy", { v = v, t = now })
   end
   if r.solar then power(kids.solar, r.solar.w); energy(kids.solar, r.solar.wh_lifetime) end
   if r.consumption then power(kids.consumption, r.consumption.w); energy(kids.consumption, r.consumption.wh_lifetime) end
@@ -330,6 +341,8 @@ local function handle_refresh(driver, device)
   local parent = is_parent(device) and device or device:get_parent_device()
   if not parent then return end
   if is_parent(device) then open_settings(driver, parent) end
+  -- a manual refresh shows the current values: skip the deadband once
+  for _, k in pairs(children(driver, parent)) do k:set_field("db_power", nil); k:set_field("db_energy", nil) end
   poll(driver, parent)
 end
 

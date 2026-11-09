@@ -81,4 +81,22 @@ function M.battery(power, secctrl)
   return b
 end
 
+-- Deadband for the 30 s polls: power and energy change on almost every poll; SmartThings asks for about one
+-- event a minute per device. last = { v = value sent, t = os.time() then } or nil (nothing sent yet).
+M.DEADBAND_SECS = 300
+
+--- power (W): send on a change of at least max(25 W, 3 %) or when the last one is 5 minutes old
+function M.power_due(last, w, now)
+  if not last then return true end
+  if now - last.t >= M.DEADBAND_SECS then return true end
+  return math.abs(w - last.v) >= math.max(25, 0.03 * math.abs(last.v))
+end
+
+--- energy (kWh): at most every 5 minutes, or sooner on a change of at least 0.1 kWh
+function M.energy_due(last, kwh, now)
+  if not last then return true end
+  if now - last.t >= M.DEADBAND_SECS then return true end
+  return math.abs(kwh - last.v) >= 0.1 - 1e-9
+end
+
 return M
