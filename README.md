@@ -63,6 +63,8 @@ Every drop is remembered. When the connection is back, the device shows **Last d
 
 The gateway uses a self-signed certificate, so it cannot be checked against a certificate authority. The driver remembers the gateway's certificate (a hash of the certificate; SmartThings hubs cannot give the usual fingerprint) at the first connection that carries the owner token. When another certificate answers later (another device on that address, or someone in between), the driver refuses and does not send the owner token; the log says so. Replaced the gateway? Enter the owner token again: the next certificate is then trusted. On a hub that cannot read certificates the driver logs that pinning is off and works as before.
 
+**Security (build 2026-11-09b):** the settings page on the hub now only answers under a secret address (`http://<hub-ip>:<port>/<secret>/`, printed in the hub log); before, anyone on your LAN could open it while it was open and overwrite the gateway address and token. After 30 wrong addresses it closes. Discovery only uses an address that answers `/info` like an IQ Gateway, so the token never goes to another device that happens to have "envoy" in its name. A pinned gateway certificate that cannot be read any more now stops the token from being sent (before, pinning was skipped).
+
 ## Privacy
 
 The token is stored on the hub only (persistent device field). Nothing secret is in this code or the package.

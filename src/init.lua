@@ -73,7 +73,7 @@ local model = require "envoy_model"
 local config_server = require "config_server"
 local emitq = require "emitq"  -- only changed values go to the hub (see emitq.lua)
 
-local BUILD = "2026-11-09a"
+local BUILD = "2026-11-09b"
 local SETTINGS_OPEN_SECS = 900
 
 local CHILDREN = {
@@ -107,22 +107,31 @@ local function settings(parent)
   return host, token
 end
 
+-- Only an address that is an IQ Gateway gets the owner token: candidates come from the Enphase mDNS service
+-- (or an http service named envoy..., older firmware) and must answer /info (no token needed) with the
+-- gateway's own <envoy_info> document. Before, any http service with "envoy" in its name was taken.
+local function is_envoy(addr)
+  local ok, status, body = pcall(api.get, addr, "/info")
+  return ok and status == 200 and type(body) == "string" and body:find("<envoy_info", 1, true) ~= nil
+end
+
 local function discover_ip()
   local ok, mdns = pcall(require, "st.mdns")
   if ok then
     for _, svc in ipairs({ "_enphase-envoy._tcp", "_http._tcp" }) do
       local res = mdns.discover(svc, "local")
       for _, f in ipairs((res and res.found) or {}) do
-        local name = tostring((f.service_info or {}).name or "") .. " " .. tostring((f.host_info or {}).name or "")
+        local name = tostring((f.service_info or {}).name or ""):lower()
         local addr = (f.host_info or {}).address
-        if addr and addr:match("^%d+%.%d+%.%d+%.%d+$") and (svc ~= "_http._tcp" or name:lower():find("envoy")) then
+        if addr and addr:match("^%d+%.%d+%.%d+%.%d+$") and (svc ~= "_http._tcp" or name:match("^envoy"))
+            and is_envoy(addr) then
           return addr
         end
       end
     end
   end
   local okr, ip = pcall(function() return cosock.socket.dns.toip("envoy.local") end)
-  if okr and ip then return ip end
+  if okr and ip and is_envoy(ip) then return ip end
 end
 
 -- battery history: SmartThings draws no graph for battery %, so optionally repeat it as a reading that has one
@@ -312,7 +321,8 @@ local function open_settings(driver, parent)
   end
   st.server = srv
   local hub_ip = driver.environment_info and driver.environment_info.hub_ipv4 or "<hub-ip>"
-  log.info(string.format("[enphase] settings page: http://%s:%d/ (open for 15 minutes)", hub_ip, srv.port))
+  log.info(string.format("[enphase] settings page: http://%s:%d%s (open for 15 minutes; the address is secret, do not share it)",
+    hub_ip, srv.port, srv.path or "/"))
   parent.thread:call_with_delay(30, function() check_settings(parent) end)
 end
 

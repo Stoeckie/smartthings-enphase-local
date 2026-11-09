@@ -47,3 +47,63 @@ def test_meters():
     assert r[b"solar"][b"w"] == 0 and r[b"grid"][b"w"] == 3238.244
     assert abs(r[b"consumption"][b"w"] - 3238.244) < 1e-6
     assert abs(r[b"consumption"][b"wh_lifetime"] - 2627227.83) < 1
+
+
+def test_settings_page_secret_path():
+    """The settings page only answers under its secret path; wrong paths count and close it after 30."""
+    lua = runtime()
+    lua.execute(b'''
+      QUEUE = {}
+      package.loaded["log"] = { warn = function() end, info = function() end }
+      package.loaded["cosock"] = { spawn = function(f) local ok, e = pcall(f); if not ok and not tostring(e):find("EMPTY") then error(e) end end }
+      local server = { bind = function() return true end, listen = function() end, settimeout = function() end,
+                       getsockname = function() return "0.0.0.0", 4321 end, close = function() end }
+      function server:accept()
+        local c = table.remove(QUEUE, 1)
+        if not c then error("EMPTY") end
+        return c
+      end
+      package.loaded["cosock.socket"] = { tcp = function() return server end, gettime = os.clock }
+      function CLIENT(raw)
+        local pos = 1
+        local c = { out = "" }
+        function c:settimeout() end
+        function c:receive(p)
+          if p == "*l" then
+            local i = raw:find("\\r\\n", pos, true)
+            if not i then return nil end
+            local l = raw:sub(pos, i - 1); pos = i + 2; return l
+          end
+          local s = raw:sub(pos, pos + p - 1); pos = pos + p; return s
+        end
+        function c:send(s) self.out = self.out .. s end
+        function c:close() end
+        QUEUE[#QUEUE + 1] = c
+        return c
+      end
+      cs = require "config_server"
+    ''')
+    a, b = lua.eval(b"cs._make_secret()"), lua.eval(b"cs._make_secret()")
+    assert len(a) == 24 and a != b
+    token = "eyJ" + "a" * 200
+    body = "host=&token=" + token
+    host = "Host: 192.168.2.8:4321\r\n"
+    reqs = ["GET / HTTP/1.1\r\n" + host + "\r\n",
+            "POST /save HTTP/1.1\r\n%sContent-Length: %d\r\n\r\n%s" % (host, len(body), body),
+            "GET /s3cr3t/ HTTP/1.1\r\n" + host + "\r\n",
+            "POST /s3cr3t/save HTTP/1.1\r\n%sContent-Length: %d\r\n\r\n%s" % (host, len(body), body)]
+    lua.execute(b"CL = {}; SAVED = nil")
+    for r in reqs:
+        lua.execute(("CL[#CL + 1] = CLIENT(%s)" % json.dumps(r)).encode())
+    lua.execute(b'SRV = cs.start({ test_secret = "s3cr3t", get_status = function() return { text = "x", host = "" } end, on_save = function(h, t) SAVED = t end })')
+    outs = [lua.eval(b"CL[%d].out" % (i + 1)) for i in range(len(reqs))]
+    assert outs[0].startswith(b"HTTP/1.1 404") and outs[1].startswith(b"HTTP/1.1 404")
+    assert outs[2].startswith(b"HTTP/1.1 200") and b'action="save"' in outs[2]
+    assert outs[3].startswith(b"HTTP/1.1 200") and lua.eval(b"SAVED") == token.encode()
+    assert lua.eval(b"SRV.wrong") == 2
+    # 30 wrong paths close the page
+    lua.execute(b"CL = {}")
+    for _ in range(30):
+        lua.execute(("CLIENT(%s)" % json.dumps("GET /x/ HTTP/1.1\r\n" + host + "\r\n")).encode())
+    lua.execute(b'SRV = cs.start({ test_secret = "s3cr3t", get_status = function() return {} end, on_save = function() end })')
+    assert lua.eval(b"SRV.running") is False
